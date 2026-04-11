@@ -26,17 +26,33 @@ const pricing = [
     name: "Free",
     price: "$0",
     period: "/month",
-    features: ["5 assets per month", "Up to 8K polys", "GLB export", "Community support"],
+    features: ["10 assets per month", "Up to 8K polys", "GLB export", "Community support"],
     cta: "Start Free",
     highlighted: false,
   },
   {
-    name: "Pro",
-    price: "$29",
+    name: "Indie",
+    price: "$19",
     period: "/month",
-    features: ["Unlimited assets", "Up to 16K polys", "GLB, OBJ, FBX export", "2048px textures", "Priority GPU queue", "API access"],
-    cta: "Go Pro",
+    features: ["150 assets per month", "Up to 8K polys", "GLB + OBJ export", "Email support"],
+    cta: "Get Indie",
+    highlighted: false,
+  },
+  {
+    name: "Studio",
+    price: "$49",
+    period: "/month",
+    features: ["600 assets per month", "Up to 16K polys", "GLB + OBJ + FBX export", "2048px textures", "Priority queue"],
+    cta: "Get Studio",
     highlighted: true,
+  },
+  {
+    name: "Pro",
+    price: "$99",
+    period: "/month",
+    features: ["2000 assets per month", "Up to 16K polys", "All formats", "API access", "Priority GPU", "Dedicated support"],
+    cta: "Get Pro",
+    highlighted: false,
   },
 ];
 
@@ -149,7 +165,7 @@ const Homepage = () => {
 
       {/* Pricing */}
       <section className="border-t border-border/50 py-24 px-4">
-        <div className="container mx-auto max-w-3xl">
+        <div className="container mx-auto max-w-5xl">
           <motion.h2
             initial="hidden"
             whileInView="visible"
@@ -162,7 +178,7 @@ const Homepage = () => {
           </motion.h2>
           <p className="mt-4 text-center text-muted-foreground">Start free. Upgrade when you need more.</p>
 
-          <div className="mt-12 grid gap-6 sm:grid-cols-2">
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {pricing.map((plan, i) => (
               <motion.div
                 key={plan.name}

@@ -228,9 +228,7 @@ def generate_3d_asset(
 # Modal web endpoint (webhook) — triggered by the FastAPI backend
 # ---------------------------------------------------------------------------
 @app.function(
-    gpu="A100",
     image=image,
-    volumes={"/models": volume},
     secrets=[modal.Secret.from_name("meshforge-secrets")],
 )
 @modal.web_endpoint(method="POST")
