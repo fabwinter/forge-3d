@@ -17,7 +17,7 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("[MeshForge] Unhandled render error:", error, info.componentStack);
+    console.error("App error:", error, info.componentStack);
   }
 
   render() {
@@ -37,6 +37,7 @@ class ErrorBoundary extends Component<Props, State> {
         </div>
       );
     }
+
     return this.props.children;
   }
 }
