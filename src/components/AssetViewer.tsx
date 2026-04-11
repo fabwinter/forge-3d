@@ -1,10 +1,12 @@
-import { Suspense } from "react";
+import { Suspense, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Environment, Grid } from "@react-three/drei";
+import { OrbitControls, Environment, Grid, useGLTF } from "@react-three/drei";
+import { Loader2 } from "lucide-react";
+import { Group } from "three";
 
 interface AssetViewerProps {
   mini?: boolean;
-  modelUrl?: string;
+  glbUrl?: string;
 }
 
 const PlaceholderMesh = () => {
@@ -22,13 +24,19 @@ const PlaceholderMesh = () => {
   );
 };
 
-const Scene = ({ mini }: { mini?: boolean }) => {
+const GLBModel = ({ url }: { url: string }) => {
+  const { scene } = useGLTF(url);
+  const ref = useRef<Group>(null);
+  return <primitive ref={ref} object={scene} />;
+};
+
+const Scene = ({ mini, glbUrl }: { mini?: boolean; glbUrl?: string }) => {
   return (
     <>
       <ambientLight intensity={0.3} />
       <directionalLight position={[5, 5, 5]} intensity={0.8} />
       <pointLight position={[-5, 3, -5]} intensity={0.3} color="#7c3aed" />
-      <PlaceholderMesh />
+      {glbUrl ? <GLBModel url={glbUrl} /> : <PlaceholderMesh />}
       {!mini && (
         <Grid
           position={[0, -1.2, 0]}
@@ -52,12 +60,12 @@ const Scene = ({ mini }: { mini?: boolean }) => {
         minPolarAngle={Math.PI / 6}
         maxPolarAngle={Math.PI / 1.5}
       />
-      <Environment preset="night" />
+      <Environment preset="studio" />
     </>
   );
 };
 
-const AssetViewer = ({ mini = false }: AssetViewerProps) => {
+const AssetViewer = ({ mini = false, glbUrl }: AssetViewerProps) => {
   return (
     <div className={`w-full ${mini ? "h-full" : "h-full min-h-[400px]"}`}>
       <Canvas
@@ -65,10 +73,22 @@ const AssetViewer = ({ mini = false }: AssetViewerProps) => {
         gl={{ antialias: true, alpha: true }}
         style={{ background: "transparent" }}
       >
-        <Suspense fallback={null}>
-          <Scene mini={mini} />
+        <Suspense
+          fallback={
+            mini ? null : (
+              <mesh>
+                <boxGeometry args={[0.01, 0.01, 0.01]} />
+                <meshBasicMaterial transparent opacity={0} />
+              </mesh>
+            )
+          }
+        >
+          <Scene mini={mini} glbUrl={glbUrl} />
         </Suspense>
       </Canvas>
+      {!mini && glbUrl === undefined && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0" />
+      )}
     </div>
   );
 };
