@@ -1,33 +1,68 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Upload, X, Download, Check, Loader2, Image as ImageIcon } from "lucide-react";
 import AssetViewer from "@/components/AssetViewer";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import type { JobStatus, PolyBudget, TextureRes, ExportFormat } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 
-const STEPS = [
-  "Removing background...",
-  "Generating multi-view...",
-  "Reconstructing mesh...",
-  "Optimising for game engine...",
-  "Finalising export...",
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+const API_URL = import.meta.env.VITE_API_URL ?? "";
+
+const STEPS: { label: string; status: JobStatus }[] = [
+  { label: "Removing background...", status: "background_removal" },
+  { label: "Generating multi-view...", status: "multiview" },
+  { label: "Reconstructing mesh...", status: "reconstruction" },
+  { label: "Optimising for game engine...", status: "optimising" },
+  { label: "Finalising export...", status: "exporting" },
 ];
 
-type PolyCount = "low" | "medium" | "high";
-type TextureRes = 512 | 1024 | 2048;
-type ExportFormat = "GLB" | "OBJ" | "FBX";
+const statusToStepIndex = (status: JobStatus): number => {
+  const map: Record<JobStatus, number> = {
+    pending: -1,
+    background_removal: 0,
+    multiview: 1,
+    reconstruction: 2,
+    optimising: 3,
+    exporting: 4,
+    complete: 5,
+    failed: -2,
+  };
+  return map[status] ?? -1;
+};
 
 const Generate = () => {
-  const [image, setImage] = useState<string | null>(null);
+  const { user, session } = useAuth();
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [generating, setGenerating] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
   const [complete, setComplete] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [glbUrl, setGlbUrl] = useState<string | undefined>(undefined);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [polyCount, setPolyCount] = useState<PolyCount>("medium");
+  const [polyCount, setPolyCount] = useState<PolyBudget>("medium");
   const [textureRes, setTextureRes] = useState<TextureRes>(1024);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("GLB");
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
 
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -38,13 +73,13 @@ const Generate = () => {
       toast.error("File must be under 10MB");
       return;
     }
+    setImageFile(file);
+    setFileName(file.name);
+    setComplete(false);
+    setCurrentStep(-1);
+    setGlbUrl(undefined);
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setImage(e.target?.result as string);
-      setFileName(file.name);
-      setComplete(false);
-      setCurrentStep(-1);
-    };
+    reader.onload = (e) => setImagePreview(e.target?.result as string);
     reader.readAsDataURL(file);
   }, []);
 
@@ -58,7 +93,7 @@ const Generate = () => {
     [handleFile]
   );
 
-  const handleGenerate = async () => {
+  const handleGenerateMock = async () => {
     setGenerating(true);
     setComplete(false);
     for (let i = 0; i < STEPS.length; i++) {
@@ -70,8 +105,122 @@ const Generate = () => {
     toast.success("3D asset generated successfully!");
   };
 
-  const handleDownload = () => {
-    toast("Download started — this is a demo, no real file is available.");
+  const handleGenerateReal = async () => {
+    if (!imageFile || !user || !session) return;
+
+    setGenerating(true);
+    setComplete(false);
+    setCurrentStep(-1);
+    setGlbUrl(undefined);
+
+    try {
+      // 1. Upload image to Supabase Storage
+      const ext = imageFile.name.split(".").pop() ?? "png";
+      const storagePath = `${user.id}/${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("input-images")
+        .upload(storagePath, imageFile, { contentType: imageFile.type, upsert: false });
+
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
+
+      const { data: urlData } = supabase.storage.from("input-images").getPublicUrl(storagePath);
+      const inputUrl = urlData.publicUrl;
+
+      // 2. Call FastAPI to create job
+      const response = await fetch(`${API_URL}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          input_url: inputUrl,
+          poly_budget: polyCount,
+          texture_res: textureRes,
+          format: exportFormat,
+          user_id: user.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: "Unknown error" }));
+        throw new Error(err.detail ?? "Failed to start generation");
+      }
+
+      const { job_id } = (await response.json()) as { job_id: string; status: string };
+      setJobId(job_id);
+
+      // 3. Poll job status every 3 seconds
+      pollRef.current = setInterval(async () => {
+        try {
+          const pollRes = await fetch(`${API_URL}/api/jobs/${job_id}`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+
+          if (!pollRes.ok) return;
+
+          const job = (await pollRes.json()) as {
+            status: JobStatus;
+            output_url: string | null;
+            error_message: string | null;
+          };
+
+          if (job.status === "failed") {
+            stopPolling();
+            setGenerating(false);
+            toast.error(job.error_message ?? "Generation failed");
+            setCurrentStep(-1);
+            return;
+          }
+
+          const stepIdx = statusToStepIndex(job.status);
+          if (stepIdx >= 0) setCurrentStep(stepIdx);
+
+          if (job.status === "complete") {
+            stopPolling();
+            setGenerating(false);
+            setComplete(true);
+            if (job.output_url) setGlbUrl(job.output_url);
+            toast.success("3D asset generated successfully!");
+          }
+        } catch {
+          // Transient network error — keep polling
+        }
+      }, 3000);
+    } catch (err) {
+      stopPolling();
+      setGenerating(false);
+      toast.error(err instanceof Error ? err.message : "Generation failed");
+    }
+  };
+
+  const handleGenerate = () => {
+    if (!imageFile) return;
+    if (USE_MOCK) {
+      handleGenerateMock();
+    } else {
+      handleGenerateReal();
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!glbUrl) {
+      toast("Download started — this is a demo, no real file is available.");
+      return;
+    }
+    try {
+      const res = await fetch(glbUrl);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `meshforge_asset_${jobId ?? "model"}.${exportFormat.toLowerCase()}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast.error("Download failed. Please try again.");
+    }
   };
 
   return (
@@ -81,28 +230,29 @@ const Generate = () => {
         <div className="flex w-full flex-col gap-4 lg:w-[380px] lg:shrink-0">
           {/* Upload zone */}
           <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
             className={`relative flex-1 min-h-[200px] overflow-hidden rounded-xl border-2 border-dashed transition-colors ${
               dragOver
                 ? "border-primary bg-primary/5"
-                : image
+                : imagePreview
                 ? "border-border bg-card"
                 : "border-border bg-card hover:border-primary/30"
             }`}
           >
-            {image ? (
+            {imagePreview ? (
               <div className="relative h-full">
-                <img src={image} alt="Upload preview" className="h-full w-full object-contain p-4" />
+                <img src={imagePreview} alt="Upload preview" className="h-full w-full object-contain p-4" />
                 <button
                   onClick={() => {
-                    setImage(null);
+                    setImageFile(null);
+                    setImagePreview(null);
                     setComplete(false);
                     setCurrentStep(-1);
+                    setGlbUrl(undefined);
+                    stopPolling();
+                    setGenerating(false);
                   }}
                   className="absolute top-2 right-2 rounded-lg bg-secondary p-1.5 text-foreground hover:bg-secondary/80"
                 >
@@ -142,7 +292,7 @@ const Generate = () => {
             <div>
               <label className="text-xs text-muted-foreground">Poly Count</label>
               <div className="mt-1.5 grid grid-cols-3 gap-2">
-                {(["low", "medium", "high"] as PolyCount[]).map((v) => (
+                {(["low", "medium", "high"] as PolyBudget[]).map((v) => (
                   <button
                     key={v}
                     onClick={() => setPolyCount(v)}
@@ -208,7 +358,7 @@ const Generate = () => {
               <Button
                 variant="hero"
                 className="flex-1"
-                disabled={!image || generating}
+                disabled={!imageFile || generating}
                 onClick={handleGenerate}
               >
                 {generating ? (
@@ -241,7 +391,7 @@ const Generate = () => {
                 className="rounded-xl border border-border bg-card p-4 space-y-2 overflow-hidden"
               >
                 {STEPS.map((step, i) => (
-                  <div key={step} className="flex items-center gap-3 text-sm">
+                  <div key={step.status} className="flex items-center gap-3 text-sm">
                     {i < currentStep ? (
                       <Check className="h-4 w-4 text-green-500 shrink-0" />
                     ) : i === currentStep ? (
@@ -249,12 +399,8 @@ const Generate = () => {
                     ) : (
                       <div className="h-4 w-4 rounded-full border border-border shrink-0" />
                     )}
-                    <span
-                      className={
-                        i <= currentStep ? "text-foreground" : "text-muted-foreground"
-                      }
-                    >
-                      {step}
+                    <span className={i <= currentStep ? "text-foreground" : "text-muted-foreground"}>
+                      {step.label}
                     </span>
                   </div>
                 ))}
@@ -267,7 +413,7 @@ const Generate = () => {
         {/* Right panel — 3D viewer */}
         <div className="flex-1 min-h-[300px] rounded-xl border border-border bg-card overflow-hidden relative">
           {complete ? (
-            <AssetViewer />
+            <AssetViewer glbUrl={glbUrl} />
           ) : (
             <div className="h-full w-full grid-bg flex items-center justify-center">
               {generating ? (
