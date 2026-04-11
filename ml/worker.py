@@ -10,7 +10,6 @@ InstantMesh 3D generation pipeline:
 """
 
 import os
-import boto3
 import modal
 from pathlib import Path
 from io import BytesIO
@@ -86,6 +85,7 @@ def generate_3d_asset(
     sys.path.insert(0, "/opt/InstantMesh")
 
     import httpx
+    import boto3
     import pymeshlab
     import trimesh
     from PIL import Image
