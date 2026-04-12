@@ -8,6 +8,22 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
+/** Translate raw Supabase/GoTrue error messages into readable copy. */
+function friendlyAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("string did not match") || m.includes("password"))
+    return "Password must be at least 8 characters and include an uppercase letter, a lowercase letter, and a number.";
+  if (m.includes("invalid login credentials") || m.includes("invalid email or password"))
+    return "Incorrect email or password.";
+  if (m.includes("email not confirmed"))
+    return "Please confirm your email before signing in. Check your inbox.";
+  if (m.includes("user already registered"))
+    return "An account with this email already exists. Try signing in instead.";
+  if (m.includes("rate limit"))
+    return "Too many attempts. Please wait a moment and try again.";
+  return message;
+}
+
 type Mode = "signin" | "signup";
 
 const Login = () => {
@@ -29,12 +45,12 @@ const Login = () => {
     if (mode === "signin") {
       const { error } = await signIn(email, password);
       setSubmitting(false);
-      if (error) toast.error(error.message);
+      if (error) toast.error(friendlyAuthError(error.message));
     } else {
       const { error } = await signUp(email, password);
       setSubmitting(false);
       if (error) {
-        toast.error(error.message);
+        toast.error(friendlyAuthError(error.message));
       } else {
         setSignUpSent(true);
       }
@@ -43,7 +59,7 @@ const Login = () => {
 
   const handleGoogle = async () => {
     const { error } = await signInWithGoogle();
-    if (error) toast.error(error.message);
+    if (error) toast.error(friendlyAuthError(error.message));
   };
 
   const switchMode = (next: Mode) => {
@@ -174,9 +190,7 @@ const Login = () => {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="password">
-                      {mode === "signup" ? "Password (min 8 chars)" : "Password"}
-                    </Label>
+                    <Label htmlFor="password">Password</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -191,6 +205,11 @@ const Login = () => {
                         disabled={submitting}
                       />
                     </div>
+                    {mode === "signup" && (
+                      <p className="text-xs text-muted-foreground">
+                        Min 8 characters · uppercase · lowercase · number
+                      </p>
+                    )}
                   </div>
 
                   <Button
