@@ -13,6 +13,7 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signUp: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
 }
@@ -43,6 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const signUp = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: `${window.location.origin}/generate` },
+    });
+    return { error };
+  };
+
   const signInWithGoogle = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -64,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         loading,
         signIn,
+        signUp,
         signInWithGoogle,
         signOut,
       }}
