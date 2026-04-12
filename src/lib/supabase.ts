@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = "https://uqtwimxepqaeqrksyrtd.supabase.co";
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || "placeholder-anon-key";
+const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxdHdpbXhlcHFhZXFya3N5cnRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5MDEwNzgsImV4cCI6MjA5MTQ3NzA3OH0.4TwKn8z-feIVs8_Jp59JzuF2y7cqzGK6jQlKqivcdxs";
 
 if (!import.meta.env.VITE_SUPABASE_ANON_KEY) {
   console.error("Missing VITE_SUPABASE_ANON_KEY environment variable.");
