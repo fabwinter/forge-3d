@@ -8,8 +8,7 @@ import { supabase } from "@/lib/supabase";
 import type { JobStatus, PolyBudget, TextureRes, ExportFormat } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
-const API_URL = import.meta.env.VITE_API_URL ?? "";
+const API_URL = import.meta.env.VITE_API_URL as string | undefined;
 
 const STEPS: { label: string; status: JobStatus }[] = [
   { label: "Removing background...", status: "background_removal" },
@@ -93,20 +92,16 @@ const Generate = () => {
     [handleFile]
   );
 
-  const handleGenerateMock = async () => {
-    setGenerating(true);
-    setComplete(false);
-    for (let i = 0; i < STEPS.length; i++) {
-      setCurrentStep(i);
-      await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
-    }
-    setGenerating(false);
-    setComplete(true);
-    toast.success("3D asset generated successfully!");
-  };
-
   const handleGenerateReal = async () => {
-    if (!imageFile || !user || !session) return;
+    if (!imageFile) return;
+    if (!user || !session) {
+      toast.error("You must be signed in to generate assets.");
+      return;
+    }
+    if (!API_URL) {
+      toast.error("VITE_API_URL is not configured. Set it in your Vercel environment variables.");
+      return;
+    }
 
     setGenerating(true);
     setComplete(false);
@@ -150,8 +145,16 @@ const Generate = () => {
       });
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: "Unknown error" }));
-        throw new Error(err.detail ?? "Failed to start generation");
+        const errBody = await response.json().catch(() => null);
+        const detail = errBody?.detail ?? errBody?.message ?? null;
+        if (response.status === 429) {
+          throw new Error("Generation limit reached. Upgrade your plan to continue.");
+        }
+        throw new Error(
+          detail
+            ? `Generation failed: ${detail}`
+            : `Server returned ${response.status}. Check VITE_API_URL is set correctly.`
+        );
       }
 
       const { job_id } = (await response.json()) as { job_id: string; status: string };
@@ -164,7 +167,10 @@ const Generate = () => {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
 
-          if (!pollRes.ok) return;
+          if (!pollRes.ok) {
+            console.error(`[Generate] Poll ${job_id}: HTTP ${pollRes.status}`);
+            return;
+          }
 
           const job = (await pollRes.json()) as {
             status: JobStatus;
@@ -175,7 +181,9 @@ const Generate = () => {
           if (job.status === "failed") {
             stopPolling();
             setGenerating(false);
-            toast.error(job.error_message ?? "Generation failed");
+            const msg = job.error_message ?? "Generation failed";
+            console.error(`[Generate] Job ${job_id} failed:`, msg);
+            toast.error(msg);
             setCurrentStep(-1);
             return;
           }
@@ -190,41 +198,40 @@ const Generate = () => {
             if (job.output_url) setGlbUrl(job.output_url);
             toast.success("3D asset generated successfully!");
           }
-        } catch {
-          // Transient network error — keep polling
+        } catch (pollErr) {
+          console.error(`[Generate] Poll ${job_id} network error:`, pollErr);
         }
       }, 3000);
     } catch (err) {
       stopPolling();
       setGenerating(false);
-      toast.error(err instanceof Error ? err.message : "Generation failed");
+      const msg = err instanceof Error ? err.message : "Generation failed";
+      console.error("[Generate] handleGenerateReal error:", err);
+      toast.error(msg);
     }
   };
 
   const handleGenerate = () => {
-    if (!imageFile) return;
-    if (USE_MOCK) {
-      handleGenerateMock();
-    } else {
-      handleGenerateReal();
-    }
+    handleGenerateReal();
   };
 
   const handleDownload = async () => {
     if (!glbUrl) {
-      toast("Download started — this is a demo, no real file is available.");
+      toast.error("No output file available to download.");
       return;
     }
     try {
       const res = await fetch(glbUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `meshforge_asset_${jobId ?? "model"}.${exportFormat.toLowerCase()}`;
       a.click();
       URL.revokeObjectURL(a.href);
-    } catch {
-      toast.error("Download failed. Please try again.");
+    } catch (err) {
+      console.error("[Generate] Download error:", err);
+      toast.error(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
