@@ -150,8 +150,16 @@ const Generate = () => {
       });
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: "Unknown error" }));
-        throw new Error(err.detail ?? "Failed to start generation");
+        const errBody = await response.json().catch(() => null);
+        const detail = errBody?.detail ?? errBody?.message ?? null;
+        if (response.status === 429) {
+          throw new Error("Generation limit reached. Upgrade your plan to continue.");
+        }
+        throw new Error(
+          detail
+            ? `Generation failed: ${detail}`
+            : `Server returned ${response.status}. Check VITE_API_URL is set correctly.`
+        );
       }
 
       const { job_id } = (await response.json()) as { job_id: string; status: string };
@@ -203,7 +211,10 @@ const Generate = () => {
 
   const handleGenerate = () => {
     if (!imageFile) return;
-    if (USE_MOCK) {
+    if (USE_MOCK || !API_URL) {
+      if (!USE_MOCK && !API_URL) {
+        toast.info("VITE_API_URL not set — running in preview mode.");
+      }
       handleGenerateMock();
     } else {
       handleGenerateReal();
