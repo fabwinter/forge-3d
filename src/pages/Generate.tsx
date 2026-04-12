@@ -8,7 +8,9 @@ import { supabase } from "@/lib/supabase";
 import type { JobStatus, PolyBudget, TextureRes, ExportFormat } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 
-const API_URL = import.meta.env.VITE_API_URL as string | undefined;
+// If VITE_API_URL is not set, use relative paths — the FastAPI backend is
+// served on the same Vercel domain under /api/* via vercel.json rewrites.
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
 
 const STEPS: { label: string; status: JobStatus }[] = [
   { label: "Removing background...", status: "background_removal" },
@@ -98,11 +100,6 @@ const Generate = () => {
       toast.error("You must be signed in to generate assets.");
       return;
     }
-    if (!API_URL) {
-      toast.error("VITE_API_URL is not configured. Set it in your Vercel environment variables.");
-      return;
-    }
-
     setGenerating(true);
     setComplete(false);
     setCurrentStep(-1);
@@ -129,7 +126,7 @@ const Generate = () => {
       const inputUrl = urlData.publicUrl;
 
       // 2. Call FastAPI to create job
-      const response = await fetch(`${API_URL}/api/generate`, {
+      const response = await fetch(`${API_BASE}/api/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -163,7 +160,7 @@ const Generate = () => {
       // 3. Poll job status every 3 seconds
       pollRef.current = setInterval(async () => {
         try {
-          const pollRes = await fetch(`${API_URL}/api/jobs/${job_id}`, {
+          const pollRes = await fetch(`${API_BASE}/api/jobs/${job_id}`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
 
