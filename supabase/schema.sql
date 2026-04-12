@@ -100,9 +100,31 @@ CREATE POLICY "Service role can update jobs"
   USING (true);  -- restricted to service_role key in backend
 
 -- ============================================================
--- Storage bucket: input-images
--- (Run via Supabase Dashboard → Storage or via API)
+-- Storage: input-images bucket + RLS
 -- ============================================================
--- INSERT INTO storage.buckets (id, name, public)
--- VALUES ('input-images', 'input-images', true)
--- ON CONFLICT (id) DO NOTHING;
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'input-images',
+  'input-images',
+  true,
+  10485760,  -- 10 MB
+  ARRAY['image/png', 'image/jpeg', 'image/webp']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow authenticated users to upload to their own folder
+DROP POLICY IF EXISTS "Users can upload own images" ON storage.objects;
+CREATE POLICY "Users can upload own images"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'input-images'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- Allow public read of all input images (needed for Modal worker to fetch them)
+DROP POLICY IF EXISTS "Public read input images" ON storage.objects;
+CREATE POLICY "Public read input images"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'input-images');
+

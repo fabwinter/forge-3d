@@ -122,7 +122,12 @@ const Generate = () => {
         .upload(storagePath, imageFile, { contentType: imageFile.type, upsert: false });
 
       if (uploadError) {
-        throw new Error(`Upload failed: ${uploadError.message}`);
+        const msg =
+          uploadError.message.toLowerCase().includes("bucket") ||
+          uploadError.message.toLowerCase().includes("not found")
+            ? 'Storage bucket "input-images" not found. Run supabase/schema.sql in your Supabase SQL Editor to create it.'
+            : `Upload failed: ${uploadError.message}`;
+        throw new Error(msg);
       }
 
       const { data: urlData } = supabase.storage.from("input-images").getPublicUrl(storagePath);
