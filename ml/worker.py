@@ -11,6 +11,7 @@ InstantMesh 3D generation pipeline:
 
 import os
 import modal
+from datetime import datetime, timezone
 from pathlib import Path
 from io import BytesIO
 
@@ -209,7 +210,7 @@ def generate_3d_asset(
             job_id,
             "complete",
             output_url=output_url,
-            completed_at="now()",
+            completed_at=datetime.now(timezone.utc).isoformat(),
         )
 
         sb.rpc("increment_generation_count", {"user_id_input": user_id}).execute()
