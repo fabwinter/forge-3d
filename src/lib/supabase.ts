@@ -1,13 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const supabaseUrl = "https://uqtwimxepqaeqrksyrtd.supabase.co";
+const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxdHdpbXhlcHFhZXFya3N5cnRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5MDEwNzgsImV4cCI6MjA5MTQ3NzA3OH0.4TwKn8z-feIVs8_Jp59JzuF2y7cqzGK6jQlKqivcdxs";
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    "Missing Supabase environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY " +
-      "must be set in your Vercel project settings (or .env.local for local dev)."
-  );
+if (!import.meta.env.VITE_SUPABASE_ANON_KEY) {
+  console.error("Missing VITE_SUPABASE_ANON_KEY environment variable.");
 }
 
 export type JobStatus =
