@@ -11,6 +11,7 @@ InstantMesh 3D generation pipeline:
 
 import os
 import modal
+from datetime import datetime, timezone
 from pathlib import Path
 from io import BytesIO
 
@@ -209,7 +210,7 @@ def generate_3d_asset(
             job_id,
             "complete",
             output_url=output_url,
-            completed_at="now()",
+            completed_at=datetime.now(timezone.utc).isoformat(),
         )
 
         sb.rpc("increment_generation_count", {"user_id_input": user_id}).execute()
@@ -228,9 +229,7 @@ def generate_3d_asset(
 # Modal web endpoint (webhook) — triggered by the FastAPI backend
 # ---------------------------------------------------------------------------
 @app.function(
-    gpu="A100",
     image=image,
-    volumes={"/models": volume},
     secrets=[modal.Secret.from_name("meshforge-secrets")],
 )
 @modal.web_endpoint(method="POST")
