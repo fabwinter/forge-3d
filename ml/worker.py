@@ -24,16 +24,32 @@ volume = modal.Volume.from_name("meshforge-models", create_if_missing=True)
 
 # ---------------------------------------------------------------------------
 # Container image
+# Build order matters:
+#   1. System libs
+#   2. PyTorch (needed before nvdiffrast)
+#   3. nvdiffrast with --no-build-isolation (requires torch already present)
+#   4. InstantMesh + remaining deps
 # ---------------------------------------------------------------------------
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install(["git", "libgl1", "libglib2.0-0", "libgomp1"])
+    # Step 1: Install PyTorch FIRST so nvdiffrast can compile against it
     .pip_install(
         "torch==2.2.0",
         "torchvision",
         "torchaudio",
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
+    # Step 2: Install nvdiffrast with --no-build-isolation (needs torch present)
+    .run_commands(
+        "pip install --no-build-isolation git+https://github.com/NVlabs/nvdiffrast/"
+    )
+    # Step 3: Clone InstantMesh and install its remaining requirements (skip nvdiffrast line)
+    .run_commands(
+        "git clone https://github.com/TencentARC/InstantMesh /opt/InstantMesh",
+        "cd /opt/InstantMesh && grep -v nvdiffrast requirements.txt | pip install -r /dev/stdin",
+    )
+    # Step 4: Everything else
     .pip_install(
         "rembg[gpu]==2.0.56",
         "pymeshlab==2023.12",
@@ -48,10 +64,6 @@ image = (
         "omegaconf==2.3.0",
         "httpx==0.27.0",
         "Pillow==10.3.0",
-    )
-    .run_commands(
-        "git clone https://github.com/TencentARC/InstantMesh /opt/InstantMesh",
-        "cd /opt/InstantMesh && pip install -r requirements.txt",
     )
 )
 
