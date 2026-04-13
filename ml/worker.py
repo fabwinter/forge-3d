@@ -108,11 +108,11 @@ def generate_3d_asset(
 
     try:
         # ------------------------------------------------------------------
-        # Step 1: Download input image
+        # Step 1: Download input image (follow redirects)
         # ------------------------------------------------------------------
         _update_status(sb, job_id, "background_removal")
 
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             img_response = client.get(input_url)
             img_response.raise_for_status()
 
