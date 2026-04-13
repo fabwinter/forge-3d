@@ -25,25 +25,26 @@ volume = modal.Volume.from_name("meshforge-models", create_if_missing=True)
 # ---------------------------------------------------------------------------
 # Container image
 #
-# Start from nvidia/cuda:12.1.1-devel-ubuntu22.04 which ships with:
-#   - CUDA_HOME=/usr/local/cuda  (pre-configured)
-#   - nvcc compiler + full CUDA headers
+# Use nvcr.io/nvidia/pytorch:23.10-py3 as recommended by nvdiffrast docs.
+# This image ships with:
+#   - CUDA 12.2 + full toolkit headers (CUDA_HOME=/usr/local/cuda)
+#   - PyTorch 2.1 pre-installed
+#   - nvcc, cuDNN, NCCL all pre-configured
+#
+# nvdiffrast also requires libegl1-mesa-dev for EGL headless rendering.
 #
 # Build order:
-#   1. NVIDIA CUDA 12.1 devel base  (CUDA_HOME pre-set)
-#   2. System libs + build tools
-#   3. numpy<2  (pin before torch)
-#   4. PyTorch cu121
-#   5. ninja + setuptools + wheel  (nvdiffrast build deps)
-#   6. nvdiffrast  (--no-build-isolation, TORCH_CUDA_ARCH_LIST=8.0)
-#   7. InstantMesh  (clone + install minus nvdiffrast)
-#   8. InstantMesh runtime deps not in requirements.txt
-#   9. Remaining app deps
+#   1. nvcr pytorch base  (CUDA + PyTorch pre-installed)
+#   2. System libs incl. libegl1-mesa-dev  (nvdiffrast EGL requirement)
+#   3. numpy<2  (pin to avoid ABI mismatch)
+#   4. ninja + setuptools + wheel  (nvdiffrast build deps)
+#   5. nvdiffrast  (--no-build-isolation, TORCH_CUDA_ARCH_LIST=8.0 for A100)
+#   6. InstantMesh  (clone + install minus nvdiffrast)
+#   7. All remaining deps
 # ---------------------------------------------------------------------------
 image = (
     modal.Image.from_registry(
-        "nvidia/cuda:12.1.1-devel-ubuntu22.04",
-        add_python="3.11",
+        "nvcr.io/nvidia/pytorch:23.10-py3",
     )
     .apt_install([
         "git",
@@ -51,20 +52,15 @@ image = (
         "libglib2.0-0",
         "libgomp1",
         "build-essential",
+        "libegl1-mesa-dev",   # required by nvdiffrast for EGL headless rendering
+        "libgles2-mesa-dev",
     ])
-    # Pin numpy<2 before torch to avoid NumPy 2.x ABI mismatch
+    # Pin numpy<2 before any CUDA extension builds
     .pip_install("numpy<2")
-    # PyTorch with CUDA 12.1 wheels
-    .pip_install(
-        "torch==2.2.0",
-        "torchvision",
-        "torchaudio",
-        extra_index_url="https://download.pytorch.org/whl/cu121",
-    )
     # Build tools required by nvdiffrast's setup.py
-    .pip_install("ninja", "setuptools", "wheel")
-    # nvdiffrast: must come after torch + ninja
-    # TORCH_CUDA_ARCH_LIST=8.0  -> A100 (sm_80)
+    .pip_install("ninja", "setuptools>=65", "wheel")
+    # nvdiffrast: EGL headers now present, torch pre-installed in base image
+    # TORCH_CUDA_ARCH_LIST=8.0 targets A100 (sm_80)
     .run_commands(
         "TORCH_CUDA_ARCH_LIST='8.0' "
         "pip install --no-build-isolation "
@@ -76,15 +72,12 @@ image = (
         "grep -v nvdiffrast /opt/InstantMesh/requirements.txt "
         "| pip install --no-build-isolation -r /dev/stdin",
     )
-    # InstantMesh runtime deps that are NOT in requirements.txt
-    # pytorch_lightning / lightning: used by InstantMesh training + inference code
-    # xformers: memory-efficient attention used by the DiT backbone
-    # timm: vision backbone feature extractor
-    # tqdm: progress bars imported at module level
+    # InstantMesh runtime deps not in requirements.txt
+    # xformers 0.0.22.post7 matches torch 2.1 in the nvcr base image
     .pip_install(
         "pytorch_lightning==2.2.0",
         "lightning==2.2.0",
-        "xformers==0.0.24",
+        "xformers==0.0.22.post7",
         "timm==0.9.16",
         "tqdm",
         "einops==0.7.0",
@@ -128,9 +121,9 @@ def _update_status(sb, job_id: str, status: str, **extra_fields) -> None:
 def generate_3d_asset(
     job_id: str,
     input_url: str,
-    poly_budget: str,   # "low" | "medium" | "high"
-    texture_res: int,   # 512 | 1024 | 2048
-    export_format: str, # "GLB" | "OBJ" | "FBX"
+    poly_budget: str,
+    texture_res: int,
+    export_format: str,
     user_id: str,
 ) -> None:
     import sys
@@ -158,9 +151,6 @@ def generate_3d_asset(
     bucket = os.environ["CLOUDFLARE_R2_BUCKET_NAME"]
 
     try:
-        # ------------------------------------------------------------------
-        # Step 1: Download input image (follow redirects)
-        # ------------------------------------------------------------------
         _update_status(sb, job_id, "background_removal")
 
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
@@ -169,16 +159,10 @@ def generate_3d_asset(
 
         input_img = Image.open(BytesIO(img_response.content)).convert("RGBA")
 
-        # ------------------------------------------------------------------
-        # Step 2: Remove background
-        # ------------------------------------------------------------------
         clean_img: Image.Image = remove(input_img)  # type: ignore[assignment]
         clean_path = Path(f"/tmp/{job_id}_clean.png")
         clean_img.save(clean_path)
 
-        # ------------------------------------------------------------------
-        # Step 3: InstantMesh multi-view + reconstruction
-        # ------------------------------------------------------------------
         _update_status(sb, job_id, "multiview")
 
         from run import main as instantmesh_run  # type: ignore[import]
@@ -193,10 +177,6 @@ def generate_3d_asset(
         )
 
         _update_status(sb, job_id, "reconstruction")
-
-        # ------------------------------------------------------------------
-        # Step 4: PyMeshLab decimation
-        # ------------------------------------------------------------------
         _update_status(sb, job_id, "optimising")
 
         poly_map: dict[str, int] = {"low": 2000, "medium": 8000, "high": 16000}
@@ -216,9 +196,6 @@ def generate_3d_asset(
         optimised_path = Path(f"/tmp/{job_id}_optimised.obj")
         ms.save_current_mesh(str(optimised_path))
 
-        # ------------------------------------------------------------------
-        # Step 5: Export in requested format
-        # ------------------------------------------------------------------
         _update_status(sb, job_id, "exporting")
 
         ext_map: dict[str, str] = {"GLB": ".glb", "OBJ": ".obj", "FBX": ".fbx"}
@@ -228,9 +205,6 @@ def generate_3d_asset(
         mesh = trimesh.load(str(optimised_path))
         mesh.export(str(output_path))
 
-        # ------------------------------------------------------------------
-        # Step 6: Upload to Cloudflare R2
-        # ------------------------------------------------------------------
         output_key = f"outputs/{job_id}/asset{ext}"
         content_type_map: dict[str, str] = {
             ".glb": "model/gltf-binary",
@@ -252,13 +226,8 @@ def generate_3d_asset(
             ExpiresIn=86400,
         )
 
-        # ------------------------------------------------------------------
-        # Step 7: Mark job complete + increment usage counter
-        # ------------------------------------------------------------------
         _update_status(
-            sb,
-            job_id,
-            "complete",
+            sb, job_id, "complete",
             output_url=output_url,
             completed_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -266,12 +235,7 @@ def generate_3d_asset(
         sb.rpc("increment_generation_count", {"user_id_input": user_id}).execute()
 
     except Exception as exc:
-        _update_status(
-            sb,
-            job_id,
-            "failed",
-            error_message=str(exc),
-        )
+        _update_status(sb, job_id, "failed", error_message=str(exc))
         raise
 
 
@@ -284,10 +248,6 @@ def generate_3d_asset(
 )
 @modal.fastapi_endpoint(method="POST")
 def webhook(data: dict) -> dict:
-    """
-    Receives job params from the FastAPI backend and spawns generation.
-    Returns immediately with {"status": "queued"}.
-    """
     generate_3d_asset.spawn(
         job_id=data["job_id"],
         input_url=data["input_url"],
