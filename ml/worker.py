@@ -226,13 +226,13 @@ def generate_3d_asset(
 
 
 # ---------------------------------------------------------------------------
-# Modal web endpoint (webhook) — triggered by the FastAPI backend
+# Modal webhook — triggered by the FastAPI backend
 # ---------------------------------------------------------------------------
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("meshforge-secrets")],
 )
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def webhook(data: dict) -> dict:
     """
     Receives job params from the FastAPI backend and spawns generation.
