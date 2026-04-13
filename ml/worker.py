@@ -29,12 +29,6 @@ volume = modal.Volume.from_name("meshforge-models", create_if_missing=True)
 #   - CUDA_HOME=/usr/local/cuda  (pre-configured)
 #   - nvcc compiler + full CUDA headers
 #
-# nvdiffrast build requirements (from https://nvlabs.github.io/nvdiffrast/):
-#   - torch installed first (--no-build-isolation links against it)
-#   - ninja + setuptools + wheel present as build tools
-#   - TORCH_CUDA_ARCH_LIST set to target GPU arch (A100 = 8.0)
-#   - CUDA_HOME pointing at toolkit
-#
 # Build order:
 #   1. NVIDIA CUDA 12.1 devel base  (CUDA_HOME pre-set)
 #   2. System libs + build tools
@@ -43,7 +37,8 @@ volume = modal.Volume.from_name("meshforge-models", create_if_missing=True)
 #   5. ninja + setuptools + wheel  (nvdiffrast build deps)
 #   6. nvdiffrast  (--no-build-isolation, TORCH_CUDA_ARCH_LIST=8.0)
 #   7. InstantMesh  (clone + install minus nvdiffrast)
-#   8. Remaining app deps
+#   8. InstantMesh runtime deps not in requirements.txt
+#   9. Remaining app deps
 # ---------------------------------------------------------------------------
 image = (
     modal.Image.from_registry(
@@ -70,7 +65,6 @@ image = (
     .pip_install("ninja", "setuptools", "wheel")
     # nvdiffrast: must come after torch + ninja
     # TORCH_CUDA_ARCH_LIST=8.0  -> A100 (sm_80)
-    # CUDA_HOME is already /usr/local/cuda in this base image
     .run_commands(
         "TORCH_CUDA_ARCH_LIST='8.0' "
         "pip install --no-build-isolation "
@@ -81,6 +75,20 @@ image = (
         "git clone https://github.com/TencentARC/InstantMesh /opt/InstantMesh",
         "grep -v nvdiffrast /opt/InstantMesh/requirements.txt "
         "| pip install --no-build-isolation -r /dev/stdin",
+    )
+    # InstantMesh runtime deps that are NOT in requirements.txt
+    # pytorch_lightning / lightning: used by InstantMesh training + inference code
+    # xformers: memory-efficient attention used by the DiT backbone
+    # timm: vision backbone feature extractor
+    # tqdm: progress bars imported at module level
+    .pip_install(
+        "pytorch_lightning==2.2.0",
+        "lightning==2.2.0",
+        "xformers==0.0.24",
+        "timm==0.9.16",
+        "tqdm",
+        "einops==0.7.0",
+        "omegaconf==2.3.0",
     )
     # Remaining application deps
     .pip_install(
@@ -93,8 +101,6 @@ image = (
         "diffusers==0.27.0",
         "transformers==4.39.0",
         "accelerate==0.28.0",
-        "einops==0.7.0",
-        "omegaconf==2.3.0",
         "httpx==0.27.0",
         "Pillow==10.3.0",
     )
