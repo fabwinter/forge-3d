@@ -3,7 +3,8 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing_extensions import Self
 
 from middleware.auth import verify_token
 from services.modal_client import trigger_generation
@@ -24,17 +25,33 @@ def _get_supabase() -> Client:
 
 
 class GenerateRequest(BaseModel):
-    input_url: str
-    poly_budget: PolyBudget
-    texture_res: TextureRes
-    format: ExportFormat
-    user_id: str
+    """Accepts both camelCase (frontend) and snake_case (direct API) field names."""
+
+    input_url: str = Field(default=None)
+    poly_budget: PolyBudget = Field(default=None)
+    texture_res: TextureRes = Field(default=None)
+    format: ExportFormat = Field(default="GLB")
+    user_id: str = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalise_field_names(cls, values: dict) -> dict:
+        """Map camelCase aliases to snake_case before validation."""
+        if not isinstance(values, dict):
+            return values
+        return {
+            "input_url":   values.get("input_url")   or values.get("imageUrl"),
+            "poly_budget": values.get("poly_budget")  or values.get("polyBudget"),
+            "texture_res": values.get("texture_res")  or values.get("textureRes"),
+            "format":      values.get("format",  "GLB"),
+            "user_id":     values.get("user_id")      or values.get("userId"),
+        }
 
     @field_validator("input_url")
     @classmethod
     def input_url_not_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("input_url must not be empty")
+        if not v or not v.strip():
+            raise ValueError("input_url / imageUrl must not be empty")
         return v
 
 
@@ -59,7 +76,13 @@ async def create_generation_job(
     sb = _get_supabase()
 
     # Check generation limit
-    profile_resp = sb.table("profiles").select("generations_used, generations_limit").eq("id", body.user_id).single().execute()
+    profile_resp = (
+        sb.table("profiles")
+        .select("generations_used, generations_limit")
+        .eq("id", body.user_id)
+        .single()
+        .execute()
+    )
     if profile_resp.data is None:
         raise HTTPException(status_code=404, detail="User profile not found")
 
