@@ -25,19 +25,25 @@ volume = modal.Volume.from_name("meshforge-models", create_if_missing=True)
 # ---------------------------------------------------------------------------
 # Container image
 #
-# We start from the official NVIDIA CUDA 12.1 devel image on Python 3.11.
-# This image ships with:
-#   - CUDA_HOME already set to /usr/local/cuda
-#   - Full CUDA headers + compiler toolchain (needed by nvdiffrast)
+# Start from nvidia/cuda:12.1.1-devel-ubuntu22.04 which ships with:
+#   - CUDA_HOME=/usr/local/cuda  (pre-configured)
+#   - nvcc compiler + full CUDA headers
+#
+# nvdiffrast build requirements (from https://nvlabs.github.io/nvdiffrast/):
+#   - torch installed first (--no-build-isolation links against it)
+#   - ninja + setuptools + wheel present as build tools
+#   - TORCH_CUDA_ARCH_LIST set to target GPU arch (A100 = 8.0)
+#   - CUDA_HOME pointing at toolkit
 #
 # Build order:
-#   1. NVIDIA CUDA 12.1 base (CUDA_HOME=/usr/local/cuda pre-configured)
-#   2. System libs
-#   3. numpy<2 (pin before torch to avoid NumPy 2.x ABI mismatch)
+#   1. NVIDIA CUDA 12.1 devel base  (CUDA_HOME pre-set)
+#   2. System libs + build tools
+#   3. numpy<2  (pin before torch)
 #   4. PyTorch cu121
-#   5. nvdiffrast (--no-build-isolation, CUDA_HOME already in env)
-#   6. InstantMesh (skip nvdiffrast line, already installed)
-#   7. Remaining Python deps
+#   5. ninja + setuptools + wheel  (nvdiffrast build deps)
+#   6. nvdiffrast  (--no-build-isolation, TORCH_CUDA_ARCH_LIST=8.0)
+#   7. InstantMesh  (clone + install minus nvdiffrast)
+#   8. Remaining app deps
 # ---------------------------------------------------------------------------
 image = (
     modal.Image.from_registry(
@@ -49,8 +55,9 @@ image = (
         "libgl1",
         "libglib2.0-0",
         "libgomp1",
+        "build-essential",
     ])
-    # Pin numpy<2 before torch — avoids NumPy 2.x ABI crash
+    # Pin numpy<2 before torch to avoid NumPy 2.x ABI mismatch
     .pip_install("numpy<2")
     # PyTorch with CUDA 12.1 wheels
     .pip_install(
@@ -59,9 +66,15 @@ image = (
         "torchaudio",
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
-    # nvdiffrast: CUDA_HOME is already /usr/local/cuda in this base image
+    # Build tools required by nvdiffrast's setup.py
+    .pip_install("ninja", "setuptools", "wheel")
+    # nvdiffrast: must come after torch + ninja
+    # TORCH_CUDA_ARCH_LIST=8.0  -> A100 (sm_80)
+    # CUDA_HOME is already /usr/local/cuda in this base image
     .run_commands(
-        "pip install --no-build-isolation git+https://github.com/NVlabs/nvdiffrast/"
+        "TORCH_CUDA_ARCH_LIST='8.0' "
+        "pip install --no-build-isolation "
+        "git+https://github.com/NVlabs/nvdiffrast/"
     )
     # InstantMesh: clone repo, install deps minus nvdiffrast (already done)
     .run_commands(
