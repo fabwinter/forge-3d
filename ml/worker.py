@@ -24,32 +24,46 @@ volume = modal.Volume.from_name("meshforge-models", create_if_missing=True)
 
 # ---------------------------------------------------------------------------
 # Container image
-# Build order matters:
-#   1. System libs
-#   2. PyTorch (needed before nvdiffrast)
-#   3. nvdiffrast with --no-build-isolation (requires torch already present)
-#   4. InstantMesh + remaining deps
+# Build order:
+#   1. System libs + CUDA toolkit (provides CUDA_HOME)
+#   2. numpy<2 pin (must come before torch to avoid ABI mismatch)
+#   3. PyTorch cu121
+#   4. nvdiffrast with --no-build-isolation + CUDA_HOME set
+#   5. InstantMesh (skip nvdiffrast line, already installed)
+#   6. Remaining Python deps
 # ---------------------------------------------------------------------------
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install(["git", "libgl1", "libglib2.0-0", "libgomp1"])
-    # Step 1: Install PyTorch FIRST so nvdiffrast can compile against it
+    .apt_install([
+        "git",
+        "libgl1",
+        "libglib2.0-0",
+        "libgomp1",
+        "cuda-toolkit-12-1",   # provides /usr/local/cuda -> CUDA_HOME
+    ])
+    # Pin numpy before torch to avoid NumPy 2.x ABI mismatch
+    .pip_install("numpy<2")
+    # PyTorch (cu121 wheels already include CUDA runtime, but nvdiffrast
+    # build needs the full toolkit headers from the apt package above)
     .pip_install(
         "torch==2.2.0",
         "torchvision",
         "torchaudio",
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
-    # Step 2: Install nvdiffrast with --no-build-isolation (needs torch present)
+    # nvdiffrast: needs torch present + CUDA_HOME set + no build isolation
     .run_commands(
-        "pip install --no-build-isolation git+https://github.com/NVlabs/nvdiffrast/"
+        "CUDA_HOME=/usr/local/cuda "
+        "pip install --no-build-isolation "
+        "git+https://github.com/NVlabs/nvdiffrast/"
     )
-    # Step 3: Clone InstantMesh and install its remaining requirements (skip nvdiffrast line)
+    # InstantMesh: clone and install everything EXCEPT nvdiffrast
     .run_commands(
         "git clone https://github.com/TencentARC/InstantMesh /opt/InstantMesh",
-        "cd /opt/InstantMesh && grep -v nvdiffrast requirements.txt | pip install -r /dev/stdin",
+        "grep -v nvdiffrast /opt/InstantMesh/requirements.txt "
+        "| CUDA_HOME=/usr/local/cuda pip install --no-build-isolation -r /dev/stdin",
     )
-    # Step 4: Everything else
+    # Remaining application deps
     .pip_install(
         "rembg[gpu]==2.0.56",
         "pymeshlab==2023.12",
@@ -150,7 +164,7 @@ def generate_3d_asset(
             config="configs/instant-mesh-large.yaml",
             output_path=str(mesh_path),
             texture_resolution=texture_res,
-            no_rembg=True,  # already removed above
+            no_rembg=True,
         )
 
         _update_status(sb, job_id, "reconstruction")
@@ -207,7 +221,6 @@ def generate_3d_asset(
                 ExtraArgs={"ContentType": content_type_map.get(ext, "application/octet-stream")},
             )
 
-        # Generate presigned URL (24-hour expiry)
         output_url: str = r2.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": output_key},
