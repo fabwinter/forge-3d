@@ -24,44 +24,50 @@ volume = modal.Volume.from_name("meshforge-models", create_if_missing=True)
 
 # ---------------------------------------------------------------------------
 # Container image
+#
+# We start from the official NVIDIA CUDA 12.1 devel image on Python 3.11.
+# This image ships with:
+#   - CUDA_HOME already set to /usr/local/cuda
+#   - Full CUDA headers + compiler toolchain (needed by nvdiffrast)
+#
 # Build order:
-#   1. System libs + CUDA toolkit (provides CUDA_HOME)
-#   2. numpy<2 pin (must come before torch to avoid ABI mismatch)
-#   3. PyTorch cu121
-#   4. nvdiffrast with --no-build-isolation + CUDA_HOME set
-#   5. InstantMesh (skip nvdiffrast line, already installed)
-#   6. Remaining Python deps
+#   1. NVIDIA CUDA 12.1 base (CUDA_HOME=/usr/local/cuda pre-configured)
+#   2. System libs
+#   3. numpy<2 (pin before torch to avoid NumPy 2.x ABI mismatch)
+#   4. PyTorch cu121
+#   5. nvdiffrast (--no-build-isolation, CUDA_HOME already in env)
+#   6. InstantMesh (skip nvdiffrast line, already installed)
+#   7. Remaining Python deps
 # ---------------------------------------------------------------------------
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.from_registry(
+        "nvidia/cuda:12.1.1-devel-ubuntu22.04",
+        add_python="3.11",
+    )
     .apt_install([
         "git",
         "libgl1",
         "libglib2.0-0",
         "libgomp1",
-        "cuda-toolkit-12-1",   # provides /usr/local/cuda -> CUDA_HOME
     ])
-    # Pin numpy before torch to avoid NumPy 2.x ABI mismatch
+    # Pin numpy<2 before torch — avoids NumPy 2.x ABI crash
     .pip_install("numpy<2")
-    # PyTorch (cu121 wheels already include CUDA runtime, but nvdiffrast
-    # build needs the full toolkit headers from the apt package above)
+    # PyTorch with CUDA 12.1 wheels
     .pip_install(
         "torch==2.2.0",
         "torchvision",
         "torchaudio",
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
-    # nvdiffrast: needs torch present + CUDA_HOME set + no build isolation
+    # nvdiffrast: CUDA_HOME is already /usr/local/cuda in this base image
     .run_commands(
-        "CUDA_HOME=/usr/local/cuda "
-        "pip install --no-build-isolation "
-        "git+https://github.com/NVlabs/nvdiffrast/"
+        "pip install --no-build-isolation git+https://github.com/NVlabs/nvdiffrast/"
     )
-    # InstantMesh: clone and install everything EXCEPT nvdiffrast
+    # InstantMesh: clone repo, install deps minus nvdiffrast (already done)
     .run_commands(
         "git clone https://github.com/TencentARC/InstantMesh /opt/InstantMesh",
         "grep -v nvdiffrast /opt/InstantMesh/requirements.txt "
-        "| CUDA_HOME=/usr/local/cuda pip install --no-build-isolation -r /dev/stdin",
+        "| pip install --no-build-isolation -r /dev/stdin",
     )
     # Remaining application deps
     .pip_install(
