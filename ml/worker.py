@@ -32,11 +32,15 @@ image = (
     ])
     .pip_install("numpy<2")
     .pip_install("ninja", "setuptools>=65", "wheel")
-    .run_commands(
-        "git clone --depth 1 --branch v3.0 "
-        "https://github.com/Tencent-Hunyuan/Hunyuan3D-3 /opt/Hunyuan3D-3 "
-        "|| git clone --depth 1 "
-        "https://github.com/Tencent-Hunyuan/Hunyuan3D-3 /opt/Hunyuan3D-3",
+.run_commands(
+        "mkdir -p /opt/Hunyuan3D-3 && "
+        "wget -q https://github.com/Tencent-Hunyuan/Hunyuan3D-3/archive/refs/tags/v3.0.tar.gz "
+        "-O /tmp/hy3d.tar.gz && "
+        "tar -xzf /tmp/hy3d.tar.gz --strip-components=1 -C /opt/Hunyuan3D-3 || "
+        "(mkdir -p /opt/Hunyuan3D-3 && "
+        "wget -q https://github.com/Tencent-Hunyuan/Hunyuan3D-3/archive/refs/heads/main.tar.gz "
+        "-O /tmp/hy3d.tar.gz && "
+        "tar -xzf /tmp/hy3d.tar.gz --strip-components=1 -C /opt/Hunyuan3D-3)",
     )
     .run_commands(
         "pip install --no-build-isolation -r /opt/Hunyuan3D-3/requirements.txt",
