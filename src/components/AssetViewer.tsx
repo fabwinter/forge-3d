@@ -1,8 +1,30 @@
-import { Suspense, useRef } from "react";
+import { Suspense, useRef, Component, ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, Grid, useGLTF } from "@react-three/drei";
-import { Loader2 } from "lucide-react";
 import { Group } from "three";
+
+class ViewerErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: string | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(e: Error) {
+    return { error: e.message };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-full w-full items-center justify-center text-center p-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Failed to load 3D model</p>
+            <p className="mt-1 text-xs text-destructive">{this.state.error}</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface AssetViewerProps {
   mini?: boolean;
@@ -68,6 +90,7 @@ const Scene = ({ mini, glbUrl }: { mini?: boolean; glbUrl?: string }) => {
 const AssetViewer = ({ mini = false, glbUrl }: AssetViewerProps) => {
   return (
     <div className={`w-full ${mini ? "h-full" : "h-full min-h-[400px]"}`}>
+      <ViewerErrorBoundary>
       <Canvas
         camera={{ position: mini ? [2, 1.5, 2] : [3, 2, 3], fov: 50 }}
         gl={{ antialias: true, alpha: true }}
@@ -86,6 +109,7 @@ const AssetViewer = ({ mini = false, glbUrl }: AssetViewerProps) => {
           <Scene mini={mini} glbUrl={glbUrl} />
         </Suspense>
       </Canvas>
+      </ViewerErrorBoundary>
       {!mini && glbUrl === undefined && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0" />
       )}
