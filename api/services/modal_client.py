@@ -8,6 +8,7 @@ async def trigger_generation(
     poly_budget: str,
     texture_res: int,
     export_format: str,
+    user_id: str,
 ) -> None:
     """
     Fire-and-forget POST to the Modal webhook to kick off the GPU worker.
@@ -21,6 +22,7 @@ async def trigger_generation(
         "poly_budget": poly_budget,
         "texture_res": texture_res,
         "format": export_format,
+        "user_id": user_id,
     }
 
     try:

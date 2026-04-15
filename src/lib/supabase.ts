@@ -1,11 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = "https://uqtwimxepqaeqrksyrtd.supabase.co";
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxdHdpbXhlcHFhZXFya3N5cnRkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5MDEwNzgsImV4cCI6MjA5MTQ3NzA3OH0.4TwKn8z-feIVs8_Jp59JzuF2y7cqzGK6jQlKqivcdxs";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-if (!import.meta.env.VITE_SUPABASE_ANON_KEY) {
-  console.error("Missing VITE_SUPABASE_ANON_KEY environment variable.");
-}
+if (!supabaseUrl) console.error("[MeshForge] Missing VITE_SUPABASE_URL env var.");
+if (!supabaseAnonKey) console.error("[MeshForge] Missing VITE_SUPABASE_ANON_KEY env var.");
 
 export type JobStatus =
   | "pending"
@@ -62,4 +61,4 @@ export interface Database {
   };
 }
 
-export const supabase = createClient<Database>(supabaseUrl!, supabaseAnonKey!);
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);

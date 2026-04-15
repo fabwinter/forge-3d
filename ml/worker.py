@@ -167,7 +167,7 @@ def generate_3d_asset(
         torch.cuda.empty_cache()
 
         # Stage 3 — PBR texture baking (Hunyuan3D Paint)
-        _update_status(sb, job_id, "texturing")
+        _update_status(sb, job_id, "reconstruction")
         paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(
             model_dir, subfolder="hunyuan3d-paint-v3-0",
         ).to("cuda")

@@ -115,6 +115,7 @@ async def create_generation_job(
             poly_budget=body.poly_budget,
             texture_res=body.texture_res,
             export_format=body.format,
+            user_id=body.user_id,
         )
     except RuntimeError as exc:
         # Mark job as failed if we can't reach Modal
