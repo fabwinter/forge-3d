@@ -1,6 +1,6 @@
 import { Suspense, useRef, Component, ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Environment, Grid, useGLTF } from "@react-three/drei";
+import { OrbitControls, Grid, useGLTF } from "@react-three/drei";
 import { Group } from "three";
 
 class ViewerErrorBoundary extends Component<
@@ -55,9 +55,10 @@ const GLBModel = ({ url }: { url: string }) => {
 const Scene = ({ mini, glbUrl }: { mini?: boolean; glbUrl?: string }) => {
   return (
     <>
-      <ambientLight intensity={0.3} />
-      <directionalLight position={[5, 5, 5]} intensity={0.8} />
-      <pointLight position={[-5, 3, -5]} intensity={0.3} color="#7c3aed" />
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
+      <directionalLight position={[-4, 2, -4]} intensity={0.4} color="#a78bfa" />
+      <pointLight position={[-5, 3, -5]} intensity={0.5} color="#7c3aed" />
       {glbUrl ? <GLBModel url={glbUrl} /> : <PlaceholderMesh />}
       {!mini && (
         <Grid
@@ -82,7 +83,6 @@ const Scene = ({ mini, glbUrl }: { mini?: boolean; glbUrl?: string }) => {
         minPolarAngle={Math.PI / 6}
         maxPolarAngle={Math.PI / 1.5}
       />
-      <Environment preset="studio" />
     </>
   );
 };
